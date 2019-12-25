@@ -249,7 +249,17 @@ class carMove:#Localization
                      np.sin(beta)/self.lr])
 #        Xw_n0 = self.Xw + dX*v*dt
 #        Xw_n1 = Xw_n0 + self.__K*(self.visionXw - Xw_n0)
+        # Xw_n1[0]=(1.0-self.K)*self.Xw[0]+self.K*self.visionXw[0]+dX[0]*v*dt
+        # Xw_n1[1]=(1.0-self.K)*self.Xw[1]+self.K*self.visionXw[1]+dX[1]*v*dt
         Xw_n1=(1.0-self.K)*self.Xw+self.K*self.visionXw+dX*v*dt
+        angle1 = self.Xw[2]
+        angle2 = self.visionXw[2]
+        angle3 = dX[2]*v*dt
+        angle1vector = np.array([np.cos(angle1),np.sin(angle1)])
+        angle2vector = np.array([np.cos(angle2),np.sin(angle2)])
+        angle3vector = np.array([np.cos(angle3),np.sin(angle3)])
+        angleSumVector = (1-self.K)*angle1vector+self.K*angle2vector+angle3vector
+        Xw_n1[2]=np.arctan2(angleSumVector[0],angleSumVector[1])
         self.Xw=Xw_n1
 
     def getCarPosition(self, Xp_car, Xp_vector , cam, v, beta, dt,location_mode):
@@ -275,9 +285,9 @@ class carMove:#Localization
         self.__filter(v,beta,dt)
         return self.Xw
 cameraNum = 0
-lr = 5#4.2 #cm
-lf = 5#5.3 #cm
-K_filter = 0
+lr = 6#4.2 #cm
+lf = 4#5.3 #cm
+K_filter = 0.1
 #!!!!!!!!!!INIT!!!!!!!!!!!!!!!!!!
 #refer_init(cameraNum)
 
@@ -333,14 +343,13 @@ print('fps',j/a)
 if j>100:
     print('Vision system need calibrate')
 print('Vision quality is',i/j)
-time.sleep(10)
 cv2.destroyAllWindows()
 carInitialPoint = carInitialPoint/50
 carInitialHead = carInitialHead/50
 move = carMove(carInitialPoint,carInitialHead,1,lr,lf,K_filter)
 xw=move.getCarPosition(red_car.car_point, red_car.head_point, 1, 0, 0, 0.05,1)
 vision=move.getVisionPosition(red_car.car_point,red_car.head_point,1)
-
+print('constructing communication with car...')
 car = MiniCar(id='0000S2')
 # move.Xw=np.array([0.,0.,0.])
 # v=0
@@ -408,7 +417,9 @@ while stopflag==0:
             elif keyboard.is_pressed('d'):
                 ang += 3
             else:
-                ang = 0
+                ang = ang-int(np.sign(ang)*3)
+                if abs(ang) <3:
+                    ang = 0
             if speed > 100:
                 speed = 100
             elif speed < -100:
@@ -441,8 +452,8 @@ while stopflag==0:
                 dt=0
             encoderLold = encoderL
             encoderRold = encoderR
-            sigma = ang/180*3.14/1.5  
-            beta = np.arctan(lr/(lf+lr)*np.tan(sigma))
+            sigma = ang/180*3.14 
+            beta = np.arctan(lr/(lf+lr)*np.tan(sigma))/1.2
             # x = x + v*np.cos(phi+beta)*dt
             # y = y + v*np.sin(phi+beta)*dt
             # phi = phi + v/lr*np.sin(beta)*dt
