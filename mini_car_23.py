@@ -292,8 +292,9 @@ _ = cap.set(3,1920)
 _ = cap.set(4,1080)
 _ = cap.set(6, cv2.VideoWriter.fourcc('M','J','P','G'))
 
-carInitialPoint1 = np.array([0,0])
-carInitialHead1 = np.array([0,0])
+carPointList = np.zeros(shape=(50,2))
+headPointList = np.zeros(shape=(50,2))
+
 carInitialPoint = np.array([0,0])
 carInitialHead = np.array([0,0])
 i = 0
@@ -305,10 +306,11 @@ while i < 50:
     # print("come")
     red_car.car_info(img_current)
     if red_car.car_point[0]>0 and red_car.car_point[1]>0:
-        carInitialPoint1 = carInitialPoint1 + np.array(red_car.car_point)/50
-        carInitialHead1 = carInitialHead1 + np.array(red_car.head_point)/50
+        carPointList[i,:] = np.array(red_car.car_point)
+        headPointList[i,:] = np.array(red_car.head_point)
         i += 1
-
+carInitialPoint1 = [np.median(carPointList[:,0]),np.median(carPointList[:,1])]
+carInitialHead1 = [np.median(headPointList[:,0]),np.median(headPointList[:,1])]
 i = 0
 j = 0
 a = time.time()
@@ -322,7 +324,7 @@ while i < 50:
     img_resize = cv2.resize(img_current,(640,360))
     cv2.imshow('blank',img_resize)
     cv2.waitKey(30)
-    if np.linalg.norm(red_car.car_point - carInitialPoint1)<500:
+    if np.linalg.norm(np.array(red_car.car_point) - carInitialPoint1)<10:
         carInitialPoint = carInitialPoint + np.array(red_car.car_point)
         carInitialHead = carInitialHead + np.array(red_car.head_point)
         i += 1
