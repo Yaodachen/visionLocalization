@@ -15,6 +15,8 @@ import math
 import matplotlib.pyplot as plt
 from detect_two import BlueCar,RedCar
 from detect_two import refer_init
+from trajectoryPlanning import trajectoryPlanning
+from PIDcontroller import PIDcontroller
 
 
 
@@ -49,6 +51,7 @@ def MiniCarScan(scan_num=3):
     for ip in broadcast_list:
         udp_socekt.settimeout(1)
         for i in range(scan_num):
+            print(ip)
             udp_socekt.sendto(msg, (ip, 21567))
             while True:
                 try:
@@ -242,6 +245,15 @@ class carMove:#Localization
         self.vXw_last=self.visionXw #记录这一次的车辆像素坐标
         return self.visionXw
     
+    def angleWeightAverage(self,a,b,ka,kb):
+        if np.abs(a-b)<np.pi:
+            c = ka*a+kb*b
+        else:
+            c = ka*(a+2*np.pi*(a<0))+kb*(b+2*np.pi*(b<0))
+        if c>np.pi:
+            c = c-2*np.pi
+        return c
+    
     def __filter(self, v, beta, dt):
         #互补滤波
         dX=np.array([np.cos(self.Xw[2]+beta),\
@@ -255,12 +267,17 @@ class carMove:#Localization
         angle1 = self.Xw[2]
         angle2 = self.visionXw[2]
         angle3 = dX[2]*v*dt
-        angle1vector = np.array([np.cos(angle1),np.sin(angle1)])
-        angle2vector = np.array([np.cos(angle2),np.sin(angle2)])
-        angle3vector = np.array([np.cos(angle3),np.sin(angle3)])
-        angleSumVector = (1-self.K)*angle1vector+self.K*angle2vector+angle3vector
-        Xw_n1[2]=np.arctan2(angleSumVector[0],angleSumVector[1])
+
+        Xw_n1[2] = self.angleWeightAverage(angle1,angle2,1-self.K,self.K)+angle3
+        if Xw_n1[2]<-np.pi:
+            Xw_n1[2] += 2*np.pi
+        elif Xw_n1[2]>np.pi:
+            Xw_n1[2] -= 2*np.pi
         self.Xw=Xw_n1
+    
+
+            
+            
 
     def getCarPosition(self, Xp_car, Xp_vector , cam, v, beta, dt,location_mode):
         #计算mini的世界坐标
@@ -284,10 +301,23 @@ class carMove:#Localization
             self.visionXw=self.Xw
         self.__filter(v,beta,dt)
         return self.Xw
-cameraNum = 0
-lr = 6#4.2 #cm
-lf = 4#5.3 #cm
-K_filter = 0.1
+    
+    def carError(self,destinatePoint,nowPoint):
+        verticalError = np.linalg.norm(destinatePoint-nowPoint[0:2])
+        destinateAngle = np.arctan2(destinatePoint[1]-xw[1],destinatePoint[0]-xw[0])
+        horizontalError = destinateAngle - xw[2]
+        if horizontalError>np.pi:
+            horizontalError -= 2*np.pi 
+        elif horizontalError<-np.pi:
+            horizontalError += 2*np.pi 
+        horizontalError = horizontalError/np.pi*180
+        return(verticalError,horizontalError)
+
+cameraNum = 0#相机序号
+planner = trajectoryPlanning()#轨迹规划
+lr = 6#4.2 #cm#转弯中心到后轮的距离
+lf = 4#5.3 #cm#转弯中心到后轮的距离
+K_filter = 0.4#0-1,越大越相信相机
 #!!!!!!!!!!INIT!!!!!!!!!!!!!!!!!!
 #refer_init(cameraNum)
 
@@ -295,7 +325,7 @@ refer_frame = cv2.imread("blank.jpg")
 cv2.imshow('blank',refer_frame)
 cv2.waitKey(1000)
 cv2.destroyAllWindows()
-red_car = RedCar(refer_frame)
+red_car = RedCar(refer_frame)#检测小车的对象
 # blue_car = BlueCar(refer_frame)
 cap = cv2.VideoCapture(cameraNum,cv2.CAP_DSHOW)
 _ = cap.set(3,1920)
@@ -308,7 +338,7 @@ headPointList = np.zeros(shape=(50,2))
 carInitialPoint = np.array([0,0])
 carInitialHead = np.array([0,0])
 i = 0
-
+######################寻找初始点
 while i < 50:
     ret,img_current = cap.read()
     # img_current = cv2.resize(img_current,(int(1920/2),int(1080/2)))
@@ -340,15 +370,20 @@ while i < 50:
         i += 1
 a = time.time() - a
 print('fps',j/a)
-if j>100:
+if i/j<0.8:
     print('Vision system need calibrate')
 print('Vision quality is',i/j)
 cv2.destroyAllWindows()
 carInitialPoint = carInitialPoint/50
 carInitialHead = carInitialHead/50
-move = carMove(carInitialPoint,carInitialHead,1,lr,lf,K_filter)
-xw=move.getCarPosition(red_car.car_point, red_car.head_point, 1, 0, 0, 0.05,1)
-vision=move.getVisionPosition(red_car.car_point,red_car.head_point,1)
+
+
+
+
+
+move = carMove(carInitialPoint,carInitialHead,1,lr,lf,K_filter)#视觉融合定位
+xw=move.getCarPosition(red_car.car_point, red_car.head_point, 1, 0, 0, 0.05,1)#x坐标in world
+vision=move.getVisionPosition(red_car.car_point,red_car.head_point,1)#纯视觉的x坐标 in world
 print('constructing communication with car...')
 car = MiniCar(id='0000S2')
 # move.Xw=np.array([0.,0.,0.])
@@ -392,11 +427,22 @@ yhis = [0]
 dthis = [0]
 xvhis=[0]
 yvhis=[0]
-err=0
-vhis=[0]
-stopflag = 0
+anghis = [0]
+phiMhis = [0]
+phiVhis = [0]
+destinatePointXhis = [0]
+destinatePointYhis = [0]
 visionCarPointHis = [0,0]
+vhis=[0]
+err=0
+
+
+stopflag = 0
+
 num=0
+posController = PIDcontroller(1.5,0,0)
+angController = PIDcontroller(1.5,0,0.02)
+
 while stopflag==0:
     num+=1
     if time.time()-lasttime>0.050:
@@ -408,33 +454,6 @@ while stopflag==0:
         red_car.car_info(img_current)
         # blue_car.car_info(img_current)
         try:
-            if keyboard.is_pressed('w'):
-                speed += 10
-            elif keyboard.is_pressed('s'):
-                speed -= 10
-            if keyboard.is_pressed('a'):
-                ang -= 3
-            elif keyboard.is_pressed('d'):
-                ang += 3
-            else:
-                ang = ang-int(np.sign(ang)*3)
-                if abs(ang) <3:
-                    ang = 0
-            if speed > 100:
-                speed = 100
-            elif speed < -100:
-                speed = -100
-            if ang > 35:
-                ang = 35
-            elif ang < -35:
-                ang = -35
-            if keyboard.is_pressed('f'):
-                ang = 0
-                speed = 0
-            if keyboard.is_pressed('p'):
-                stopflag = 100
-            car.car_remote(l_speed=speed, r_speed=speed,
-                           go_time=1000, angle=ang, block=False)
             carTime = car.get_time_stamp()
             dt = (carTime - carTimeOld)/1000
             print('dt:',dt)
@@ -452,8 +471,8 @@ while stopflag==0:
                 dt=0
             encoderLold = encoderL
             encoderRold = encoderR
-            sigma = ang/180*3.14 
-            beta = np.arctan(lr/(lf+lr)*np.tan(sigma))/1.2
+            sigma = ang/180*3.14 #舵机角度
+            beta = np.arctan(lr/(lf+lr)*np.tan(sigma))/1.2#前进方向与车头方向夹角
             # x = x + v*np.cos(phi+beta)*dt
             # y = y + v*np.sin(phi+beta)*dt
             # phi = phi + v/lr*np.sin(beta)*dt
@@ -467,26 +486,74 @@ while stopflag==0:
                 
 
 
-            xw=move.getCarPosition(red_car.car_point, red_car.head_point, 1, v, beta, dt,location_mode)
+            xw=move.getCarPosition(red_car.car_point, red_car.head_point, 1, v, beta, dt,location_mode)#3维向量，x,y,phi
+            phiVision = math.atan2( red_car.head_point[1]-red_car.car_point[1],red_car.head_point[0]-red_car.car_point[0])
+            #xw = [xv,yv,phiVision]
             dthis.append(dt)
-
-            
             
             visionCarPointHis.append(red_car.car_point)
 
             x=xw[0]
             y=xw[1]
-            if x==-1 and y==-1:
-                err+=1
-            print('[%d]speed:' % ((time.time() * 1000 % 100000)), v,'cm/s')
-            print('[%d]encoders:' %
-                  ((time.time()*1000 % 100000)), car.get_encoders())
-            print('wheelAngle:',sigma*180/np.pi)
+            xw = np.array(xw)
+            destinatePoint = planner.planning()
+            verticalError,horizontalError = move.carError(destinatePoint,xw)
+            speed = posController.controller(verticalError)
+            ang = angController.controller(horizontalError)
+            if verticalError<5:
+                ang = 0
+                speed = 0
+           # speed,ang = move.carController(destinatePoint,xw)
+            # if keyboard.is_pressed('w'):
+            #     speed += 1
+            # elif keyboard.is_pressed('s'):
+            #     speed -= 1
+            # if keyboard.is_pressed('a'):
+            #     ang -= 5
+            # elif keyboard.is_pressed('d'):
+            #     ang += 5
+            # else:
+            #     ang = ang-int(np.sign(ang)*5)
+            #     if abs(ang) <5:
+            #         ang = 0
+            if speed > 100:
+                speed =100
+            elif speed < -100:
+                speed = -100
+            if speed < 10 and speed >0:
+                speed = 10
+            if speed >-10 and speed <0:
+                speed  = -10
+            if ang > 35:
+                ang = 35
+            elif ang < -35:
+                ang = -35
+            if keyboard.is_pressed('f'):
+                ang = 0
+                speed = 0
+            if keyboard.is_pressed('p'):
+                stopflag = 100
+            car.car_remote(l_speed=int(speed), r_speed=int(speed),
+                           go_time=1000, angle=int(ang), block=False)
+            print('SPEED',speed)
+            
+            
+            
+            
+            
+            phiMix = xw[2]
             xhis.append(x)
             yhis.append(y)
             vhis.append(v)
             xvhis.append(xv)
             yvhis.append(yv)
+            anghis.append(ang/180*3.14/1.5)
+            phiMhis.append(phiMix)
+            phiVhis.append(phiVision)
+            destinatePointXhis.append(destinatePoint[0])
+            destinatePointYhis.append(destinatePoint[1])
+        
+            
             
             
         except Exception as e:
