@@ -198,8 +198,10 @@ class RedCar:
         self.current_frame = frame
         self.car_thresh = 60
         self.car_kernel = np.ones((9,9),np.uint8)
-        self.lower_red = np.array([156, 43, 46])
-        self.upper_red = np.array([180, 255, 255])
+        # self.lower_red = np.array([156, 43, 46])
+        # self.upper_red = np.array([180, 255, 255])
+        self.lower_red = np.array([0, 43, 46])
+        self.upper_red = np.array([10, 255, 255])
         self.lower_blue = np.array([100,43,46])
         self.lower_blue = np.array([124,255,255])
         self.red_block_kernel = np.ones((5,5),np.uint8)
@@ -334,10 +336,12 @@ class BlueCar:
         self.lower_blue = np.array([100,43,46])
         self.upper_blue = np.array([124,255,255])
         self.blue_block_kernel = np.ones((3,3),np.uint8)
-        self.blue_pixel = 20
+        self.blue_pixel = 30
         self.blue_area = 30
         self.head_point = (0,0)
         self.detection_flag = False
+        # cv2.namedWindow("car")
+        # cv2.namedWindow("thresh")
     def location(self):
         # cv2.imshow("refer",self.refer_frame)
         # cv2.imshow("current",self.current_frame)
@@ -349,6 +353,11 @@ class BlueCar:
         # cv2.imshow("diff thresh",thresh)
         # cv2.imshow("diff open",open)
         # cv2.waitKey(100000)
+        # t = cv2.resize(thresh,(int(1920/2),int(1080/2)))
+        # cv2.imshow("thresh", t)
+        # k = cv2.waitKey(20)
+        # if k == 27:
+        #     cv2.destroyAllWindows()
         car_contours, car_hier = cv2.findContours(open, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         print("%%%%",len(car_contours))
         if len(car_contours) == 0:
@@ -357,14 +366,16 @@ class BlueCar:
         for cidx,cnt in enumerate(car_contours):
             car_x, car_y, car_w, car_h = cv2.boundingRect(cnt)
             self.car_pic_rect = (car_x, car_y, car_w, car_h)
-            car = img_current[car_y:car_y+car_h,car_x:car_x+car_w]
+            car = self.current_frame[car_y:car_y+car_h,car_x:car_x+car_w]
             car_hsv = cv2.cvtColor(car, cv2.COLOR_BGR2HSV)
             # process for the red block
             car_mask = cv2.inRange(car_hsv,lowerb=self.lower_blue,upperb=self.upper_blue)
             blue_light = car_mask.sum()
             # cv2.imshow("mask",car_mask)
             # cv2.imshow("car",car)
-            # cv2.waitKey(5000)
+            # k = cv2.waitKey(30)
+            # if k == 27:
+            #     cv2.destroyAllWindows()
             # at least 10 pixel
             if blue_light > self.blue_pixel * 255:
                 # print("light is: ",(red_light))
@@ -438,15 +449,151 @@ class BlueCar:
             self.head_point = (-1,-1)
             self.car_point = (-1,-1)
 
+
+class CyanCar:
+    def __init__(self, frame):
+        self.car_location = ((0, 0), (80, 40), 0)
+        self.car_direction = 0
+        self.car_point = (0, 0)
+        self.car_pic_rect = (0, 0, 80, 40)
+        self.cyan_block_location = ((0, 0), (10, 5), 0)
+        self.refer_frame = frame
+        self.current_frame = frame
+        self.car_thresh = 60
+        self.car_kernel = np.ones((9, 9), np.uint8)
+        self.lower_cyan = np.array([165, 43, 46])
+        self.upper_cyan = np.array([170, 255, 255])
+        self.cyan_block_kernel = np.ones((3, 3), np.uint8)
+        self.cyan_pixel = 20
+        self.cyan_area = 10
+        self.head_point = (0, 0)
+        self.detection_flag = False
+
+    def location(self):
+        # cv2.imshow("refer",self.refer_frame)
+        # cv2.imshow("current",self.current_frame)
+        # cv2.waitKey(100000)
+        diff = cv2.absdiff(self.current_frame, self.refer_frame)
+        gray = cv2.cvtColor(diff, cv2.COLOR_RGB2GRAY)
+        _, thresh = cv2.threshold(gray, self.car_thresh, 255, 0)
+        open = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, self.car_kernel)
+        # cv2.imshow("diff thresh",thresh)
+        # cv2.imshow("diff open",open)
+        # cv2.waitKey(100000)
+        car_contours, car_hier = cv2.findContours(open, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        print("%%%%", len(car_contours))
+        if len(car_contours) == 0:
+            # no car detected
+            self.detection_flag = False
+        for cidx, cnt in enumerate(car_contours):
+            car_x, car_y, car_w, car_h = cv2.boundingRect(cnt)
+            self.car_pic_rect = (car_x, car_y, car_w, car_h)
+            car = self.current_frame[car_y:car_y + car_h, car_x:car_x + car_w]
+            car_hsv = cv2.cvtColor(car, cv2.COLOR_BGR2HSV)
+            # process for the red block
+            car_mask = cv2.inRange(car_hsv, lowerb=self.lower_cyan, upperb=self.upper_cyan)
+            cyan_light = car_mask.sum()
+            # cv2.imshow("mask",car_mask)
+            # cv2.imshow("car",car)
+            # cv2.waitKey(20000)
+            # at least 10 pixel
+            if cyan_light > self.cyan_pixel * 255:
+                # print("light is: ",(red_light))
+                self.car_location = cv2.minAreaRect(cnt)
+                print("car location: ", self.car_location)
+                # process the red block area
+                car_open = cv2.morphologyEx(car_mask, cv2.MORPH_OPEN, self.cyan_block_kernel)
+                car_close = cv2.morphologyEx(car_mask, cv2.MORPH_CLOSE, self.cyan_block_kernel)
+                # cv2.imshow("car",car)
+                # cv2.imshow("mask",car_mask)
+                # cv2.imshow("open",car_open)
+                # cv2.imshow("close",car_close)
+                # cv2.waitKey(20000)
+                cyan_block_contours, cyan_block_hier = cv2.findContours(car_open, cv2.RETR_EXTERNAL,
+                                                                        cv2.CHAIN_APPROX_SIMPLE)
+                for cyan_block_cidx, cyan_block_cnt in enumerate(cyan_block_contours):
+                    area = cv2.contourArea(cyan_block_cnt)
+                    if area > self.cyan_area:
+                        self.cyan_block_location = cv2.minAreaRect(cyan_block_cnt)
+                        print("cyan block: ", self.cyan_block_location)
+                        self.detection_flag = True
+                        break
+                else:
+                    continue
+                break
+            else:
+                # no car detected
+                self.detection_flag = False
+
+    def car_info(self, frame):
+        self.current_frame = frame
+        self.location()
+        print("cyan flag is: ", self.detection_flag)
+        if self.detection_flag:
+            self.car_direction = self.car_location[2]
+            self.car_point = self.car_location[0]
+            car_area_width = self.car_location[1][0]
+            car_area_height = self.car_location[1][1]
+
+            car_pic_rect_width = self.car_pic_rect[2]
+            car_pic_rect_height = self.car_pic_rect[3]
+            print("car rect width", self.car_pic_rect)
+            red_block_x = self.cyan_block_location[0][0]
+            red_block_y = self.cyan_block_location[0][1]
+            if car_area_width > car_area_height:
+                if self.car_direction > -25:
+                    if red_block_x > 0.5 * car_pic_rect_width:
+                        pass
+                    else:
+                        self.car_direction -= 180
+                else:
+                    if red_block_y < 0.5 * car_pic_rect_height:
+                        pass
+                    else:
+                        self.car_direction -= 180
+            else:
+                if self.car_direction > -65:
+                    if red_block_y < 0.5 * car_pic_rect_height:
+                        self.car_direction -= 90
+                    else:
+                        self.car_direction -= 270
+                else:
+                    if red_block_x < 0.5 * car_pic_rect_width:
+                        self.car_direction -= 90
+                    else:
+                        self.car_direction -= 270
+            car_pi_angel = (-1 * self.car_direction) / 180 * math.pi
+            head_x = self.car_point[0] + 50 * math.cos(car_pi_angel)
+            head_y = self.car_point[1] - 50 * math.sin(car_pi_angel)
+            self.head_point = (head_x, head_y)
+        else:
+            self.head_point = (-1, -1)
+            self.car_point = (-1, -1)
+
+
 def refer_init(cam_num):
     cap = cv2.VideoCapture(cam_num,cv2.CAP_DSHOW)
     _ = cap.set(3,1920)
     _ = cap.set(4,1080)
     _ = cap.set(6, cv2.VideoWriter.fourcc('M','J','P','G'))
-    _,refer_frame = cap.read()
+    cap.set(cv2.CAP_PROP_AUTOFOCUS, 0)
+    cap.set(cv2.CAP_PROP_FOCUS, 0)
+    for i in range(10):
+        _,refer_frame = cap.read()
     cv2.imwrite("blank.jpg",refer_frame)
     cap.release()
 
+
+def open_video_write(cameraNum,pic_name):
+    cap = cv2.VideoCapture(cameraNum, cv2.CAP_DSHOW)
+    _ = cap.set(3, 1920)
+    _ = cap.set(4, 1080)
+    _ = cap.set(6, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G'))
+    cap.set(cv2.CAP_PROP_AUTOFOCUS, 0)
+    cap.set(cv2.CAP_PROP_FOCUS,0)
+    _,frame = cap.read()
+    cv2.imwrite(pic_name,frame)
+    cap.release()
 # 1300-1800
 # 2300-2800
 
@@ -460,13 +607,13 @@ if __name__ == "__main__":
     # cv2.imwrite("r3.jpg",refer_frame)
     # cap.release()
     # cv2.destroyAllWindows()
-
-    # # # test for single pic
-    img_refer = cv2.imread('r_refer.jpg')
-    img_current = cv2.imread('r3.jpg')
+    # open_video_write(0,"c3.jpg")
+    # # # # test for single pic
+    img_refer = cv2.imread('blank.jpg')
+    img_current = cv2.imread('c3.jpg')
     # img_refer = cv2.resize(img_refer,(int(1920/2),int(1080/2)))
     # img_current = cv2.resize(img_current,(int(1920/2),int(1080/2)))
-    blue_car = RedCar(img_refer)
+    blue_car = CyanCar(img_refer)
     blue_car.car_info(img_current)
     print("middle point: ",blue_car.car_point)
     print("angle",blue_car.car_direction)
